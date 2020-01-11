@@ -1,30 +1,31 @@
 /*
- * Functions for the Buffer Handling
+ * Functions for the Linebuffer and Matrixbuffer Handling
+ * 
+ * 2020 F. Brandner
  */
-#include "zxpix_font.h"
+
+#include "letters.h"
 
 #define LINES   2         // Number of Lines
 
-// Line-Buffers:
-// Controller(16 Byte) * Controllers per Line (2) * Modules in Chain (2) * Blocks (2) = 128 Byte
+// The Line-Buffers:
+// Controller(16 Byte) * Controllers per Line (2) * Modules in Chain (2) * Blocks (2) = 128 Byte (per Color and Line)
 uint8_t   Lines[LINES][HT1632_COLS][HT1632_BUFSIZE*2*CHAIN_MODS*NUM_BLOCKS];
 
 // Block-Buffers:
-// Controller(16 Byte) * Controllers per Module (4) * Modules in Chain (2) = 128 Byte
+// Controller(16 Byte) * Controllers per Module (4) * Modules in Chain (2) = 128 Byte (per Color and Block)
 uint8_t   Blocks[NUM_BLOCKS][HT1632_COLS][HT1632_BUFSIZE*HT1632_NUM*CHAIN_MODS];
-
-
 
 bool EnableLineScroll[LINES] = { false, false };        // Enables automatic Line-Scrolling
 
 // The Add-Buffer
+// The Applications adds Chars to this Buffer, the ISR will then put them on the Matrix
 typedef struct {
   bool      IsEmpty;
   uint8_t   Char;
   uint8_t   CharPos;
   uint8_t   Color;
 } tyAddBuffer;
-
 tyAddBuffer AddBuffer[LINES];
 
 /************************************************************
@@ -47,11 +48,13 @@ void Buffer_AddBuffInit() {
   }
 }
 /************************************************************
- * Adds a Char to a lines AddBuffer
+ * Adds a Char to a Line
  ************************************************************/
 bool Buffer_AddChar(uint8_t Line, uint8_t Char, uint8_t Color) {
   if (Line>=LINES) return(false);
   if (AddBuffer[Line].IsEmpty==false) return(false);
+  if (Char>'~') return(false);
+  if (Char<' ') return(false);
 
   AddBuffer[Line].Char    = Char;
   AddBuffer[Line].Color   = Color;
@@ -65,7 +68,7 @@ bool Buffer_IsBuffEmpty(uint8_t Line) {
   return(AddBuffer[Line].IsEmpty);
 }
 /************************************************************
- * Setter/Getter for the LineScrolling
+ * Enable/Disable the automatic LineScrolling
  ************************************************************/
 void Buffer_ScrollOn(uint8_t Line)  { EnableLineScroll[Line] = true; }
 void Buffer_ScrollOff(uint8_t Line) { EnableLineScroll[Line] = false; }
@@ -77,7 +80,7 @@ void Buffer_Refresh() {
   Buffer_SendBlockData();
 }
 /************************************************************
- * Clear a Line
+ * Clear a Linebuffer
  ************************************************************/
 void Buffer_ClearLine(uint8_t Line) {
   memset(&Lines[Line],0x00,sizeof(Lines[Line]));
@@ -85,15 +88,16 @@ void Buffer_ClearLine(uint8_t Line) {
 /************************************************************
  * Worker, called from a ISR
  * Adds buffered Chars or scrolls the Display
+ * Behind every Char a empty Column will be added
  ************************************************************/
 void Buffer_ISRWorker() {
   for (uint8_t Line=0;Line<LINES;Line++) {
     if (!AddBuffer[Line].IsEmpty) {
-      if (AddBuffer[Line].CharPos<6) {
+      if (AddBuffer[Line].CharPos<Letters[AddBuffer[Line].Char-' '].NumOfBytes) {
         uint8_t Byte1 = 0;
         uint8_t Byte2 = 0;
-        if ((AddBuffer[Line].Color==TEXTCOL_G)||(AddBuffer[Line].Color==TEXTCOL_O)) Byte1=reverse(font[AddBuffer[Line].Char-' '][AddBuffer[Line].CharPos]);
-        if ((AddBuffer[Line].Color==TEXTCOL_R)||(AddBuffer[Line].Color==TEXTCOL_O)) Byte2=reverse(font[AddBuffer[Line].Char-' '][AddBuffer[Line].CharPos]);
+        if ((AddBuffer[Line].Color==TEXTCOL_G)||(AddBuffer[Line].Color==TEXTCOL_O)) Byte1=Letters[AddBuffer[Line].Char-' '].Data[AddBuffer[Line].CharPos];
+        if ((AddBuffer[Line].Color==TEXTCOL_R)||(AddBuffer[Line].Color==TEXTCOL_O)) Byte2=Letters[AddBuffer[Line].Char-' '].Data[AddBuffer[Line].CharPos];
         Buffer_AppendByte(Line, Byte1, Byte2);
         AddBuffer[Line].CharPos++;
       } else {
@@ -119,20 +123,20 @@ unsigned char reverse(unsigned char b) {
    return b;
 }
 /************************************************************
- * Appends a full Char to the End of the Line
+ * Appends a full Char to the End of the Line (direct access)
  ************************************************************/
 void Buffer_AppendChar(uint8_t Line, uint8_t Char, uint8_t Color) {
   if (Line>=LINES) return;
-  for (uint8_t i=0;i<6;i++) {
+  for (uint8_t i=0;i<Letters[Char-' '].NumOfBytes;i++) {
     uint8_t Byte1 = 0x00;
     uint8_t Byte2 = 0x00;
-    if ((Color==TEXTCOL_G)||(Color==TEXTCOL_O)) Byte1=reverse(font[Char-' '][i]);
-    if ((Color==TEXTCOL_R)||(Color==TEXTCOL_O)) Byte2=reverse(font[Char-' '][i]);
+    if ((Color==TEXTCOL_G)||(Color==TEXTCOL_O)) Byte1=Letters[Char-' '].Data[i];
+    if ((Color==TEXTCOL_R)||(Color==TEXTCOL_O)) Byte2=Letters[Char-' '].Data[i];
     Buffer_AppendByte(Line, Byte1, Byte2);
   }
 }
 /************************************************************
- * Appends a Byte to the end of a Line
+ * Appends a Byte to the end of a Line (direct access)
  ************************************************************/
 void Buffer_AppendByte(uint8_t Line, uint8_t Byte1, uint8_t Byte2 ) {
   if (Line>=LINES) return;
@@ -141,7 +145,7 @@ void Buffer_AppendByte(uint8_t Line, uint8_t Byte1, uint8_t Byte2 ) {
   Lines[Line][1][(HT1632_BUFSIZE*2*CHAIN_MODS*NUM_BLOCKS)-1] = Byte2;
 }
 /************************************************************
- * Copys the Line-Buffers into the Block-Buffer
+ * Copy/Convert the Line-Buffers into the Block-Buffer
  ************************************************************/
 void Buffer_Line2HT1632() {
   /* The Lines must be reordered to match the Controller
@@ -190,7 +194,8 @@ void Buffer_SendBlockData() {
 }
 /************************************************************
  * Scroll Line Left
- * Loop: Copy char from the left to the right side
+ * Depending on "Loop" the left column is either discarded,
+ * or appended on the right side
  ************************************************************/
 void Buffer_ScrollLeft(uint8_t Line, bool Loop) {
   uint8_t   OldValue[2] = { 0, 0 };

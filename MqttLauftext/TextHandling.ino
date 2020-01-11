@@ -1,5 +1,10 @@
+/*
+ * Text/String-Handling
+ * 
+ * 2020 F. Brandner
+ */
 
-
+// WIP!
 
 #define   BUFSIZE       20      // Number of elements
 

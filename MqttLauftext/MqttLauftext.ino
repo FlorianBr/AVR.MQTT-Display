@@ -1,18 +1,28 @@
 /*
  * MQTT-Controlled Text for Sure Electronics LED Matrix
  * 
- * - Arduino Mega
- * - KBV LCD-Shield
- * - CSA:   53
- *   CSB:   45
- *   CLK:   51
- *   WR:    47
- *   DATA:  49
+ * 2020 F. Brandner
+ * 
+ * HW Setup::
+ *      Arduino Mega
+ *      KBV LCD-Shield (currently unused)
+ *      4x Sure Electronics LED matrix displays, Two chained in 2 blocks
+ *            Block A is on the left with CSA, Block B is right with CSB
+ *      
+ *  
+ * Pinning:
+ *   CSA:   53      Chip-Select for Block A
+ *   CSB:   45      Chip-Select for Block B
+ *   CLK:   51      Clock (Shared)
+ *   WR:    47      Write (Shared)
+ *   DATA:  49      Data (Shared)
  *   
- * Connected are 4 Matrix Modules, grouped by 2
- * Left is Block A with CSA, Right is Block B with CSB
- * CLK, WR and Data is shared
  *   
+ * TODO:  
+ *    - Improve HT1632-Functions (Timing)
+ *    - Handling of Text/Strings
+ *    - MQTT Connection
+ *    - Port everything to ESP32
  */
 
 #include "ht1632.h"
@@ -24,10 +34,13 @@
 #define DATA            49                // Data Input
 #define WR              47                // Write Data Clock
 
+#define UPDATERATE      50                // Update Rate for the Matrix
+
 #define TEXTCOL_G       1                 // Color = Green
 #define TEXTCOL_R       2                 // Color = Red
 #define TEXTCOL_O       3                 // Color = Green&Red=Orange
 
+/**************************************** Setup */
 void setup() {
   // Some debug info
   Serial.begin(115200);
@@ -61,7 +74,7 @@ void setup() {
 
   Serial.println("Setting up complete!");
 }
-
+/**************************************** Loop */
 void loop() {
   static char InputText[] = { "Hello World!" };
   char * pTextChar = &InputText[0];
@@ -73,12 +86,15 @@ void loop() {
   HT1632_WCmd(-1,LED_ON);
 
   while(1) {
+
+    // Line 1: All the defined chars one after another
     if (Buffer_IsBuffEmpty(0)) {
       Buffer_AddChar(0, ' '+iChar, 1+iChar%3);
       iChar++;
     }
-    if (iChar>=96) iChar=0;
+    if (iChar>=0x7E) iChar=0;
 
+    // Line 2: Fixed String, put into the buffer and then scrolled
     if (Buffer_IsBuffEmpty(1)) {
       if (pTextChar!=NULL) {
         Buffer_AddChar(1, *pTextChar, TEXTCOL_G);
@@ -90,12 +106,11 @@ void loop() {
     delay(5);
   }
 }
-
 /**************************************** ISR */
 ISR(TIMER1_COMPA_vect) {
   static unsigned long LastRun = 0;
 
-  if ((millis()-LastRun)>=50) {
+  if ((millis()-LastRun)>=UPDATERATE) {
     LastRun=millis();
     Text_ISRWorker();
     Buffer_ISRWorker(); 

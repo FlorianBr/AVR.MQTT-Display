@@ -1,5 +1,8 @@
 /*
  * Functions to access Sure Electronics LED Matrix Displays with HT1632 Controller
+ * 
+ * 2020 F. Brandner
+ * 
  */
 
 #define CLKDLY          void();                 // Delay between digitalWrites (if necessary)
@@ -35,7 +38,7 @@ void HT1632_SetPWMVal(uint8_t PWMValue) {
  * Selects a Module in a Block
  *  0 = NONE
  * -1 = ALL
- * >0 = Module Nr.
+ * >0 = Module Number
  ************************************************************/
 void HT1632_CS(int8_t Module) {
   if (Module<0) {               // Enable all Modules in both Blocks
