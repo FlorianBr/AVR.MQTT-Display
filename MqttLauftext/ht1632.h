@@ -23,3 +23,7 @@
 // Helpers
 #define LOWER(x)        ((byte)(x&0x0F))            // Return lower nibble
 #define UPPER(x)        ((byte)((x&0xF0)>>4))       // Return higher nibble
+
+#define TEXTCOL_G       1                 // Color = Green
+#define TEXTCOL_R       2                 // Color = Red
+#define TEXTCOL_O       3                 // Color = Green&Red=Orange

@@ -21,7 +21,7 @@
  * TODO:  
  *    - Improve HT1632-Functions (Timing)
  *    - Handling of Text/Strings
- *    - MQTT Connection
+ *    - MQTT Connection  (Library: PubSub)
  *    - Port everything to ESP32
  */
 
@@ -34,16 +34,10 @@
 #define DATA            49                // Data Input
 #define WR              47                // Write Data Clock
 
-#define UPDATERATE      50                // Update Rate for the Matrix
-
-#define TEXTCOL_G       1                 // Color = Green
-#define TEXTCOL_R       2                 // Color = Red
-#define TEXTCOL_O       3                 // Color = Green&Red=Orange
-
 /**************************************** Setup */
 void setup() {
   // Some debug info
-  Serial.begin(115200);
+  Serial.begin(57600);
   Serial.println("Setting up...");
   Serial.println("Compiled: " __DATE__ " " __TIME__);
 
@@ -72,47 +66,90 @@ void setup() {
   TIMSK1 |= (1 << OCIE1A);              // enable timer compare interrupt
   sei();
 
+  BitBuffer_Init();                     // Init Modules
+  Text_Init();
+
   Serial.println("Setting up complete!");
 }
 /**************************************** Loop */
 void loop() {
-  static char InputText[] = { "Hello World!" };
-  char * pTextChar = &InputText[0];
+  uint8_t   LineSelect = 0;
+  uint32_t  Uptime=0;
   
-  uint8_t iChar = 0;
-  uint8_t iStringPos = 0;
-  Buffer_Init();
-  Text_Init();
-  HT1632_WCmd(-1,LED_ON);
 
+  HT1632_WCmd(-1,LED_ON);               // Enable Display Output
+
+  Text_SetString(1, "Hello World!");
+  BitBuffer_SetScroll(1, 1); // Scroll Right
+  
   while(1) {
+#if 1
+      // TESTMODE!!
+      char  cBuffer[50];
+      uint16_t    Secs;
+      uint16_t    MSecs;
 
-    // Line 1: All the defined chars one after another
-    if (Buffer_IsBuffEmpty(0)) {
-      Buffer_AddChar(0, ' '+iChar, 1+iChar%3);
-      iChar++;
-    }
-    if (iChar>=0x7E) iChar=0;
+      MSecs = millis();
+      Secs  = MSecs/1000;
+      MSecs = MSecs - 1000*Secs;
 
-    // Line 2: Fixed String, put into the buffer and then scrolled
-    if (Buffer_IsBuffEmpty(1)) {
-      if (pTextChar!=NULL) {
-        Buffer_AddChar(1, *pTextChar, TEXTCOL_G);
-        pTextChar++;
-        if (pTextChar>=(&InputText[0]+sizeof(InputText))-1) { pTextChar=NULL; Buffer_ScrollOn(1); }
+      snprintf(&cBuffer[0], 50, "T=o\\%d.%03dg\\", Secs, MSecs);
+      Text_SetString(0, &cBuffer[0]);
+
+
+#endif
+
+
+#if 0  
+    if (Serial.available() > 0) {
+      char  Buffer[100];
+      Serial.setTimeout(5000);
+      String InputStr = Serial.readStringUntil('\n');
+
+      Serial.print("Line ");
+      Serial.print(LineSelect);
+      Serial.print(" is selected, received: [");
+      Serial.print(InputStr);
+      Serial.println("]");
+
+      InputStr.toCharArray(Buffer,50);
+
+      if (InputStr.equals("L1")) {            // Command: Select Line 1
+        Serial.println("Selected Line = 1");  
+        LineSelect=0;
+      } else 
+      if (InputStr.equals("L2")) {            // Command: Select Line 2
+        Serial.println("Selected Line = 2");  
+        LineSelect=1;
+      } else 
+      if (InputStr.equals("C1")) {            // Command: Clear Line 1
+        Text_ClrLine(LineSelect);
+        BitBuffer_ClearLine(LineSelect);
+      } else 
+      if (InputStr.equals("C2")) {            // Command: Clear Line 2
+        Text_ClrLine(LineSelect);
+        BitBuffer_ClearLine(LineSelect);
+      } else 
+      if (InputStr.startsWith("A")) {         // Command: Append Text
+        Serial.println("Append Text");
+        Text_AddString(LineSelect, &Buffer[1]);
+      } else 
+      if (InputStr.startsWith("S")) {         // Command: Set Text
+        Serial.println("Set Text");  
+        Text_SetString(LineSelect, &Buffer[1]);
+      } else 
+      if (InputStr.startsWith("I")) {         // Command: Info
+        Text_DebugInfo(LineSelect);
+      } else  {                               // Everything else is send to the Textparser
+        Serial.println("ERROR: Unknown Command");  
       }
     }
-
-    delay(5);
+#endif
+    delay(100);
   }
 }
 /**************************************** ISR */
 ISR(TIMER1_COMPA_vect) {
-  static unsigned long LastRun = 0;
-
-  if ((millis()-LastRun)>=UPDATERATE) {
-    LastRun=millis();
-    Text_ISRWorker();
-    Buffer_ISRWorker(); 
-  }
+  Text_ISRWorker();
+  BitBuffer_ISRWorker(); 
 }
